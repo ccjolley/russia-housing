@@ -177,8 +177,71 @@ train %>% select(starts_with('office_count')) %>% apply(1,is.unsorted) %>% sum
 train %>% select(starts_with('sport_count')) %>% apply(1,is.unsorted) %>% sum
 train %>% select(starts_with('trc_count')) %>% apply(1,is.unsorted) %>% sum
 
+# Correlations with factor variables?
+# product_type, sub_area
+lm(price_doc ~ product_type,train) %>% summary # owner-occupiers are cheaper
+lm(price_doc ~ sub_area,train) %>% summary # R^2 = 0.2; this seems to matter
+plotme <- train %>%
+  group_by(sub_area) %>%
+  summarise(sa_mean = mean(price_doc,na.rm=TRUE)) %>%
+  left_join(train,by='sub_area') %>%
+  select(sub_area,price_doc,sa_mean) 
+ggplot(plotme,aes(x=sa_mean,y=price_doc)) +
+  geom_point(size=2,color='tomato',alpha=0.1) +
+  theme_classic()
+
+# These could really be turned into binary 0/1 and treated as numeric 
+# if I want to plug them into PCA, etc.
+lm(price_doc ~ culture_objects_top_25 + thermal_power_plant_raion + 
+     incineration_raion + oil_chemistry_raion + radiation_raion + railroad_terminal_raion +
+     big_market_raion + nuclear_reactor_raion + detention_facility_raion +
+     water_1line + big_road1_1line + railroad_1line,train) %>% summary
+# most seem pretty significant, but taken together they don't explain a ton
+
+# TODO: move this to a cleaning section; maybe factor out to a helper fn
+train <- train %>%
+  mutate(culture_objects_top_25 = ifelse(culture_objects_top_25 == 'yes',1,0),
+         thermal_power_plant_raion = ifelse(thermal_power_plant_raion == 'yes',1,0),
+         incineration_raion = ifelse(incineration_raion == 'yes',1,0),
+         oil_chemistry_raion = ifelse(oil_chemistry_raion == 'yes',1,0),
+         radiation_raion = ifelse(radiation_raion == 'yes',1,0),
+         railroad_terminal_raion = ifelse(railroad_terminal_raion == 'yes',1,0),
+         big_market_raion = ifelse(big_market_raion == 'yes',1,0),
+         nuclear_reactor_raion = ifelse(nuclear_reactor_raion == 'yes',1,0),
+         detention_facility_raion = ifelse(detention_facility_raion == 'yes',1,0),
+         water_1line = ifelse(water_1line == 'yes',1,0),
+         big_road1_1line = ifelse(big_road1_1line == 'yes',1,0),
+         railroad_1line = ifelse(railroad_1line == 'yes',1,0))
+
+# These are integer variables that really should be treated as factors
+tn[grep('ID',tn)]
+# also material, state
+train <- train %>%
+  mutate(ID_metro=as.factor(ID_metro),
+         ID_railroad_station_walk = as.factor(ID_railroad_station_walk),
+         ID_railroad_station_avto = as.factor(ID_railroad_station_avto),
+         ID_big_road1 = as.factor(ID_big_road1),
+         ID_big_road2 = as.factor(ID_big_road2),
+         ID_railroad_terminal = as.factor(ID_railroad_terminal),
+         ID_bus_terminal = as.factor(ID_bus_terminal))
+
+# I'm not sure what material means, but it doesn't seem to define a clear 
+# scale. Let's make this a factor variable as well
+train$material %>% table
+train %>% group_by(material) %>%
+  summarize(m=mean(price_doc,na.rm=TRUE),s=sd(price_doc,na.rm=TRUE))
+
+train <- train %>%
+  mutate(material=as.factor(material))
+
+# state seems more meaningful, but I don't like the 33 -- this will mess with
+# any attempts to do PCA
+train %>% group_by(state) %>%
+  summarize(m=mean(price_doc,na.rm=TRUE),s=sd(price_doc,na.rm=TRUE))
+train <- train %>% 
+  mutate(state=ifelse(state==33,NA,state))
+
 # TODO:
-# remind myself how to do GitHub commits from RStudio...
 # do something similar for my factor variables -- which matter the most?
 # make a quick eval function that will put together a linear model from a 
 #   set of variables and calculate my objective function 

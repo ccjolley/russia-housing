@@ -93,7 +93,7 @@ russia_clean <- function(df) {
            -public_transport_station_km,-full_sq,-kindergarten_km,
            -preschool_km,-school_km,-fitness_km,-hospice_morgue_km,
            -big_church_km,-additional_education_km,-church_synagogue_km,
-           -price_doc,-trc_sqm_500)
+           -trc_sqm_500)
   
   # TODO: any other variables that don't define a meaningful scale?
   res

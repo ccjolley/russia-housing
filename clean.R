@@ -87,6 +87,14 @@ russia_clean <- function(df) {
            material=as.factor(material),
            # Training set contains one state=33; looks like a 1-4 scale
            state=ifelse(state>4,NA,state)
-          )
-  # TODO: remove variables that got rescaled
+          ) %>%
+    # Remove variables that got rescaled
+    select(-life_sq,-public_transport_station_min_walk,-public_healthcare_km,
+           -public_transport_station_km,-full_sq,-kindergarten_km,
+           -preschool_km,-school_km,-fitness_km,-hospice_morgue_km,
+           -big_church_km,-additional_education_km,-church_synagogue_km,
+           -price_doc,-trc_sqm_500)
+  
+  # TODO: any other variables that don't define a meaningful scale?
+  res
 }

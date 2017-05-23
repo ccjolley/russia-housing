@@ -6,8 +6,8 @@ library(mice)
 library(moments)
 
 # import and light cleaning
-train <- read.csv('train.csv') %>%
-  russia_clean()
+train <- read.csv('train.csv') 
+train_clean <- russia_clean(train)
   
 glimpse(train)
 
@@ -159,8 +159,6 @@ lm(price_doc ~ culture_objects_top_25 + thermal_power_plant_raion +
 # These are integer variables that really should be treated as factors
 tn[grep('ID',tn)]
 # also material, state
-train <- train %>%
-  mutate()
 
 # I'm not sure what material means, but it doesn't seem to define a clear 
 # scale. Let's make this a factor variable as well
@@ -169,18 +167,37 @@ train %>% group_by(material) %>%
   summarize(m=mean(price_doc,na.rm=TRUE),s=sd(price_doc,na.rm=TRUE))
 
 
-
 # state seems more meaningful, but I don't like the 33 -- this will mess with
 # any attempts to do PCA
 train %>% group_by(state) %>%
   summarize(m=mean(price_doc,na.rm=TRUE),s=sd(price_doc,na.rm=TRUE))
 
-# TODO:
-# do something similar for my factor variables -- which matter the most?
-# make a quick eval function that will put together a linear model from a 
-#   set of variables and calculate my objective function 
-# how well can I do with knn?
-# maybe separate variables into groups -- building-specific, location, and temporal
-# PCA on each variable group -- a lot of features will co-vary
-# can I do anything interesting by geolocating raions?
+# are there other variables that might not show monotonic variation?
+# floor
+train %>% select(floor,price_doc) %>%
+  na.omit %>%
+  mutate(ln_price_doc=log1p(price_doc)) %>%
+  ggplot(aes(x=floor,y=price_doc,group=floor)) +
+    geom_boxplot() +
+    theme_classic() +
+    xlim(0,40)
+# max_floor
+train %>% select(max_floor,price_doc) %>%
+  na.omit %>%
+  mutate(ln_price_doc=log1p(price_doc)) %>%
+  ggplot(aes(x=max_floor,y=price_doc,group=max_floor)) +
+  geom_boxplot() +
+  theme_classic() +
+  xlim(0,40)
+# build_year
+train %>% select(build_year,price_doc) %>%
+  na.omit %>%
+  mutate(ln_price_doc=log1p(price_doc)) %>%
+  ggplot(aes(x=build_year,y=price_doc,group=build_year)) +
+  geom_boxplot() +
+  theme_classic() +
+  xlim(1950,2020)
+# ts
 
+# All these show so much variability that it's hard to tell what they're 
+# doing at this point...

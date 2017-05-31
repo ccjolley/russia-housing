@@ -93,7 +93,7 @@ train_loc <- train[,loc_complete] %>%
 # Now it's PCA time
 pr <- prcomp(train_loc,center=TRUE,scale=TRUE)
 qplot(pr$x[,1],pr$x[,2])
-data.frame(sd=pr2$sdev) %>%
+data.frame(sd=pr$sdev) %>%
   mutate(var=sd^2,
          prop=var/sum(var),
          cum_prop=cumsum(prop),
@@ -119,7 +119,135 @@ system.time(imp2 <- mice(test2,m=1,method='pmm')) # 46.69s
 
 # TODO: can I bring factor variables back in? what happens then?
 
+test3 <- cbind(train$material,pr$x[,1:30])
+system.time(imp <- mice(test3,m=1,method='pmm')) # 19.57s
+# factor variables don't seem to take longer to impute
+test4 <- cbind(train[,c('build_year','ID_metro')],pr$x[,1:30]) 
+system.time(imp <- mice(test4,m=1,method='pmm')) # start at 16:13
+
 # TODO: come up with a reasonable set of dependencies between variables
 # and establish an imputation matrix
 
+# These only depend on location; impute them based on my 30 PCA variables
+# There are 43 of them; I could expect this part to take ~20 min.
+loc_dep <- c('preschool_quota','school_quota','cafe_sum_1000_min_price_avg',
+             'cafe_sum_1000_max_price_avg','cafe_avg_price_1000',
+             'raion_build_count_with_material_info','build_count_block',
+             'build_count_wood','build_count_frame','build_count_brick',
+             'build_count_monolith','build_count_panel','build_count_foam',
+             'build_count_slag','build_count_mix',
+             'raion_build_count_with_builddate_info','build_count_before_1920',
+             'build_count_1921.1945','build_count_1946.1970',
+             'build_count_1971.1995','build_count_after_1995',
+             'cafe_sum_1500_min_price_avg','cafe_sum_1500_max_price_avg',
+             'cafe_avg_price_1500','cafe_sum_2000_min_price_avg',
+             'cafe_sum_2000_max_price_avg','cafe_avg_price_2000',
+             'cafe_sum_3000_min_price_avg','cafe_sum_3000_max_price_avg',
+             'cafe_avg_price_3000','cafe_sum_5000_min_price_avg',
+             'cafe_sum_5000_max_price_avg','cafe_avg_price_5000',
+             'prom_part_5000','metro_min_walk','metro_km_walk',
+             'railroad_station_walk_km','railroad_station_walk_min',
+             'ID_railroad_station_walk','hospital_beds_raion',
+             'cafe_sum_500_min_price_avg','cafe_sum_500_max_price_avg',
+             'cafe_avg_price_500')
 
+# These concern specific buildings -- they'll be informed by location, but 
+# also depend on each other.
+building <- c('build_year','state','kitch_sq','max_floor','material',
+               'num_room','ln_life_sq','floor','ln_full_sq')
+
+# don't impute target variables (price), irrelevant variables (timestamp),
+# or variables that have been replaced (ecology)
+# also don't impute factor variables with lots of levels (ID_*)
+impute_me <- train[,!(names(train) %in% loc_complete)] %>%
+  select(-id,-timestamp,-price_doc,-ln_price_doc,-ts,-ecology,
+         -ID_railroad_station_walk) %>%
+  cbind(pr$x[,1:30])
+               
+nim <- names(impute_me)
+m <- matrix(0,nrow=length(nim),ncol=length(nim))
+for (ni in nim) {
+  i <- which(nim==ni)
+  # location for everything
+  if (ni %in% names(nmis)) {
+    m[i,(length(nim)-29):length(nim)] <- 1
+  }
+  # building also depend on each other
+  if (ni %in% building) {
+    other_building <- which(nim %in% building & nim != ni)
+    m[i,other_building] <- 1
+  }
+}
+
+# merge imputed variables back into train
+
+imputed <- mice(impute_me,m=1,predictorMatrix=m)
+
+saveRDS(imputed, file="imputed.rds")
+#imputed <- readRDS("imputed.rds")
+
+ci <- complete(imputed)
+train_imp <- train 
+for (n in nim[1:(length(nim)-30)]) {
+  train_imp[,n] <- ci[,n]
+}
+# fix factor variables with few levels
+
+is.na(train_imp) %>% colSums 
+# only ID_railroad_station_walk still has NA's, but I'm not going to use
+# those ID variables in PCA anyway.
+
+# separate building and location-related variables, do PCA separately
+
+nti <- names(train_imp)
+dont_use <- c('id','timestamp','ts','price_doc','ln_price_doc','ecology')
+factors <- c('sub_area',grep('^ID',nti,value=TRUE))
+build_all <- c(building,'product_type')
+loc_all <- c('eco_scale',loc_dep,loc_complete) %>% setdiff(factors)
+setdiff(nti,c(dont_use,factors,build_all,loc_all))
+
+# TODO: why wasn't eco_scale in loc_dep?
+
+pc_loc <- prcomp(train_imp[,loc_all],center=TRUE,scale=TRUE)
+# I now need 38 out of 271 components to get 90% of variance
+pc_loc_x <- pc_loc$x[,1:38]
+colnames(pc_loc_x) <- sub('PC','LOC',colnames(pc_loc_x))
+
+buildvars <- train_imp[,build_all] %>%
+  mutate(product_type=as.numeric(product_type)) %>%
+  cbind(model.matrix(~train_imp$material)) %>% 
+  select(-material,-`(Intercept)`)
+pc_build <- prcomp(buildvars,center=TRUE,scale=TRUE)
+# I can get 90% of variance with 9 of these 14 variables
+pc_build_x <- pc_build$x[,1:9]
+colnames(pc_build_x) <- sub('PC','B',colnames(pc_build_x))
+
+# combine back into one data frame with PCA results and ln_price_doc
+
+train_pc <- train %>% 
+  select(ln_price_doc) %>%
+  cbind(pc_build_x,pc_loc_x)
+
+# how well do linear models do now?
+
+lm_pca <- lm(ln_price_doc ~ .,train_pc)
+pred_pca <- train_pc %>% select(ln_price_doc)
+pred_pca <- merge(pred_pca,predict(lm_pca),by='row.names')
+
+(pred_pca$ln_price_doc - pred_pca$y)^2 %>% mean %>% sqrt
+# 0.4888297, compared to 0.5151 in linear.R
+qplot(pred_pca$ln_price_doc,pred_pca$y)
+
+# does test set have any missing values in it?
+
+test_raw <- read.csv('test.csv') # this does contain some NA's
+test <- test_raw %>% russia_clean
+
+# TODO: I need a function that, given an original data row with possible 
+# missing values (as in the test set), will do the following:
+# 1. initial location-based PCA projection (based on data from training set)
+# 2. imputation based on data from training data
+# 3. PCA projection using imputed values
+# 4. return a row with just the needed PCA components
+
+# then I can deploy this on a linear model (or whatever else I fancy)

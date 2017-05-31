@@ -44,6 +44,11 @@ russia_clean <- function(df) {
   bad_kitch <- res %>% filter(kitch_sq > full_sq | kitch_sq > life_sq)
   res$kitch_sq[res$id %in% bad_kitch$id] <- NA
   
+  # if price_doc is absent (as in test data), add in NA
+  if (!('price_doc' %in% names(res))) {
+    res$price_doc <- NA
+  }
+  
   res <- res %>%
     mutate(
            # Add log-scales for skewed variables
@@ -94,7 +99,5 @@ russia_clean <- function(df) {
            -preschool_km,-school_km,-fitness_km,-hospice_morgue_km,
            -big_church_km,-additional_education_km,-church_synagogue_km,
            -trc_sqm_500)
-  
-  # TODO: any other variables that don't define a meaningful scale?
   res
 }

@@ -17,8 +17,19 @@ qplot(1:length(nmis),nmis/nrow(train))
 # no missing values. Return a dataframe containing the non-complete variables
 # along with the first nvars principal components of the complete ones.
 ###############################################################################
-clean_to_pca1 <- function(df,nvars=30) {
-  
+clean_to_pca1 <- function(df,nvars=30,never_use=NULL) {
+  nmis <- df %>% is.na %>% colSums
+  missing <- names(df)[nmis > 0]
+  use_vars <- names(df) %>% setdiff(missing) %>% setdiff(never_use)
+  pr <- prcomp(df[,use_vars],center=TRUE,scale=TRUE)
+  diag <- data.frame(sd=pr$sdev) %>%
+    mutate(var=sd^2,
+           prop=var/sum(var),
+           cum_prop=cumsum(prop))
+  paste0('First ',nvars,' components contain ',diag[nvars,'cum_prop'],
+         ' of variance') %>% print
+  df[,!(names(df) %in% use_vars)] %>%
+    cbind(pr$x[,1:nvars])
 }
 
 ###############################################################################

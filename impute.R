@@ -13,6 +13,32 @@ length(nmis) # 53 variables have missing values
 qplot(1:length(nmis),nmis/nrow(train))
 
 ###############################################################################
+# Categories of variables in the Russia housing dataset
+###############################################################################
+nt <- names(train)
+dont_use <- c('id','timestamp','ts','price_doc','ln_price_doc','ecology')
+building <- c('build_year','state','kitch_sq','max_floor','material',
+              'num_room','ln_life_sq','floor','ln_full_sq','product_type')
+loc <- c(grep('_count_',nt,value=TRUE),
+         grep('_km',nt,value=TRUE),
+         grep('_part',nt,value=TRUE),
+         grep('_sqm_',nt,value=TRUE),
+         grep('raion',nt,value=TRUE),
+         grep('male',nt,value=TRUE),
+         grep('female',nt,value=TRUE),
+         grep('_all',nt,value=TRUE),
+         grep('_walk',nt,value=TRUE),
+         grep('_avto',nt,value=TRUE),
+         grep('_price_',nt,value=TRUE),
+         grep('school',nt,value=TRUE),
+         grep('_1line',nt,value=TRUE),
+         'eco_scale','area_m','culture_objects_top_25')
+factors <- c(grep('^ID_',nt,value=TRUE),'sub_area')
+nt %>% setdiff(c(dont_use,building,loc,factors))
+
+
+
+###############################################################################
 # Given a cleaned dataset, perform PCA on the location-based variables with
 # no missing values. Return a dataframe containing the non-complete variables
 # along with the first nvars principal components of the complete ones.
@@ -32,6 +58,8 @@ clean_to_pca1 <- function(df,nvars=30,never_use=NULL) {
     cbind(pr$x[,1:nvars])
 }
 
+
+
 ###############################################################################
 # Given output from clean_to_pca1, generate an imputation matrix that can
 # be used by MICE. I want to make something general enough that it will be 
@@ -45,6 +73,7 @@ clean_to_pca1 <- function(df,nvars=30,never_use=NULL) {
 #          this case, these are my building-related variables.
 ###############################################################################
 make_imp_matrix <- function() {
+  
   
 }
   
@@ -115,8 +144,7 @@ loc_dep <- c('preschool_quota','school_quota','cafe_sum_1000_min_price_avg',
 
 # These concern specific buildings -- they'll be informed by location, but 
 # also depend on each other.
-building <- c('build_year','state','kitch_sq','max_floor','material',
-               'num_room','ln_life_sq','floor','ln_full_sq')
+
 
 # don't impute target variables (price), irrelevant variables (timestamp),
 # or variables that have been replaced (ecology)

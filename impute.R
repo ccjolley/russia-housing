@@ -44,7 +44,9 @@ clean_to_pca1 <- function(df,nvars=30,never_use=NULL) {
 #          variables that should depend on each other during imputation. In
 #          this case, these are my building-related variables.
 ###############################################################################
-make_imp_matrix <- function()
+make_imp_matrix <- function() {
+  
+}
   
 ###############################################################################
 # Given a dataframe and a factor variable, expand it into binary dummy 
@@ -87,30 +89,6 @@ data.frame(sd=pr$sdev) %>%
     theme_classic() +
     geom_hline(yintercept=0.9,color='tomato')
 # about 30 vars gets me to 90% of the location-related variance
-
-########################################
-# Benchmark speeds of different imputation methods
-########################################
-test <- cbind(train$build_year,pr$x[,1:30])
-
-system.time(imp <- mice(test,m=1,method='sample')) # 1.22s
-system.time(imp <- mice(test,m=1,method='mean')) # 0.85
-system.time(imp <- mice(test,m=1,method='pmm')) # 26.16s
-system.time(imp <- mice(test,m=1,method='fastpmm')) # 23.97s
-
-test2 <- cbind(train[,c('build_year','state')],pr$x[,1:30])
-system.time(imp2 <- mice(test2,m=1,method='pmm')) # 46.69s
-
-# TODO: can I bring factor variables back in? what happens then?
-
-test3 <- cbind(train$material,pr$x[,1:30])
-system.time(imp <- mice(test3,m=1,method='pmm')) # 19.57s
-# factor variables don't seem to take longer to impute
-test4 <- cbind(train[,c('build_year','ID_metro')],pr$x[,1:30]) 
-system.time(imp <- mice(test4,m=1,method='pmm')) # start at 16:13
-
-# TODO: come up with a reasonable set of dependencies between variables
-# and establish an imputation matrix
 
 # These only depend on location; impute them based on my 30 PCA variables
 # There are 43 of them; I could expect this part to take ~20 min.

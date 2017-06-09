@@ -1,16 +1,14 @@
+library(dplyr)
 library(mice)
-library(ggplot2)
 
 source('clean.R')
-train <- read.csv('train.csv') %>% russia_clean
-
-# Just running MICE on the whole thing is too slow -- I need something more
-# efficient. Which variables are actually missing the most often?
+test <- read.csv('test.csv') %>% russia_clean
 
 ###############################################################################
 # Categories of variables in the Russia housing dataset
 ###############################################################################
-nt <- names(train)
+nt <- names(test)
+rm(test)
 dont_use <- c('id','timestamp','ts','price_doc','ln_price_doc','ecology')
 building <- c('build_year','state','kitch_sq','max_floor','material',
               'num_room','ln_life_sq','floor','ln_full_sq','product_type')
@@ -30,7 +28,6 @@ loc <- c(grep('_count_',nt,value=TRUE),
          grep('_1line',nt,value=TRUE),
          'eco_scale','area_m','culture_objects_top_25') %>%
   setdiff(c(factors,'ln_price_doc','price_doc'))
-nt %>% setdiff(c(dont_use,building,loc,factors))
 
 ###############################################################################
 # Given a cleaned dataset, perform PCA on the location-based variables with
@@ -51,8 +48,6 @@ clean_to_pca1 <- function(df,nvars=30,never_use=NULL) {
   df[,!(names(df) %in% use_vars)] %>%
     cbind(pr$x[,1:nvars])
 }
-
-train_pca1 <- clean_to_pca1(train,30,c(dont_use,factors,building))
 
 ###############################################################################
 # Given output from clean_to_pca1, generate an imputation matrix that can
@@ -97,15 +92,6 @@ make_imp_matrix <- function(df,full_dep=NULL,groups) {
   m
 }
 
-m <- make_imp_matrix(train_pca1,groups=building)
-# sanity checks
-#nim <- names(train_pca1)
-#nim[9]
-#nim[m[,9]==1] # what depends on #9
-#nim[m[9,]==1] # what does #9 depend on?
-#colSums(m)
-#rowSums(m)
-
 ###############################################################################
 # Given a dataframe and a factor variable, expand it into binary dummy 
 # variables. Returns the dataframe without the original factor but with
@@ -122,8 +108,6 @@ add_dummy <- function(df,varname) {
   res <- cbind(res,bindme) 
   res[,!(names(res) %in% c(varname,'(Intercept)'))]
 }
-
-add_dummy(train_pca1,'material') %>% glimpse
 
 ###############################################################################
 # Given output from clean_to_pca1(), impute missing values. This will also
@@ -149,10 +133,6 @@ pca1_to_imputed <- function(pca_df,full_df,m,seed=NA) {
   res
 }
 
-train_imp <- pca1_to_imputed(train_pca1,train,m,12345)
-# ID_railroad_station_walk was in there. Why?
-names(train_pca1)
-  
 ###############################################################################
 # Given a fully-imputed dataframe with no missing values, separate variables
 # into pre-specified groups, run PCA on each, and output a dataframe where
@@ -197,73 +177,11 @@ group_pca <- function(df,groups,nvars,labels) {
   res
 }
 
-train_pca2 <- group_pca(train_imp,list(loc,building),nvars=c(38,9),
-                        labels=c('loc_','build_'))
 
-###############################################################################
-# Test how well linear models do now
-###############################################################################
 
-train_pca2$ln_price_doc <- train$ln_price_doc
 
-lm_pca <- lm(ln_price_doc ~ .,train_pca2)
-pred_pca <- train_pca2 %>% select(ln_price_doc)
-pred_pca <- merge(pred_pca,predict(lm_pca),by='row.names')
-(pred_pca$ln_price_doc - pred_pca$y)^2 %>% mean %>% sqrt
-# 0.488407, compared to 0.5151 in linear.R
-qplot(pred_pca$ln_price_doc,pred_pca$y)
 
-###############################################################################
-# 10x cross-validation for linear model
-###############################################################################
-xval_ind <- rep(1:10,times=nrow(train)/10+1)[1:nrow(train)] %>% sample
-res <- rep(NA,10)
-for (i in 1:10) {
-  train_i <- train_pca2
-  train_i$ln_price_doc <- train$ln_price_doc
-  train_i$ln_price_doc[xval_ind==i] <- NA
-  lm_i <- lm(ln_price_doc ~ .,train_i)
-  pred_i <- train_i
-  pred_i$id <- train$id
-  pred_i$ln_price_doc <- train$ln_price_doc # put the known prices back in
-  pred_i <- pred_i[xval_ind==i,] # keep only the "test" set
-  pred_i <- merge(pred_i,predict(lm_i,newdata=pred_i),by='row.names')
-  rmsle <- (pred_i$ln_price_doc - pred_i$y)^2 %>% mean %>% sqrt
-  paste0('x-val ',i,': RMSLE = ',rmsle) %>% print
-  res[i] <- rmsle
-}
-mean(res) # 0.4891476
 
-###############################################################################
-# Now it's time to get real
-###############################################################################
-
-test <- read.csv('test.csv') %>% russia_clean
-alldata <- rbind(train,test)
-
-all_pca1 <- clean_to_pca1(alldata,30,c(dont_use,factors,building))
-fd <- setdiff(names(alldata),c('ln_price_doc','price_doc',dont_use,factors))
-all_m <- make_imp_matrix(all_pca1,full_dep=fd,groups=building)
-all_imp <- pca1_to_imputed(all_pca1,alldata,all_m,123456)
-names(all_imp)[colSums(is.na(all_imp))>0]
-
-all_pca2 <- group_pca(all_imp,list(loc,building),nvars=c(38,9),
-                        labels=c('loc_','build_'))
-
-all_pca2$ln_price_doc <- alldata$ln_price_doc # this will be NA for items in test set
-lm_all <- lm(ln_price_doc ~ .,all_pca2)
-pred_pca <- all_pca2 
-pred_pca$id <- alldata$id
-pred_pca <- pred_pca %>% filter(is.na(ln_price_doc))
-pred_pca <- merge(pred_pca,predict(lm_pca,newdata=pred_pca),by='row.names')
-submit <- pred_pca %>%
-  mutate(price_doc=exp(y)-1) %>%
-  select(id,price_doc) %>%
-  arrange(id)
-
-write.csv(submit,'submit-0608b.csv',row.names=FALSE)
-
-# Leaderboard: 0.57660
 
 # TODO: incorporate macroeconomic data
 # TODO: try knn, rf, others...

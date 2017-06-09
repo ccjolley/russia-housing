@@ -7,11 +7,6 @@ train <- read.csv('train.csv') %>% russia_clean
 # Just running MICE on the whole thing is too slow -- I need something more
 # efficient. Which variables are actually missing the most often?
 
-nmis <- train %>% is.na %>% colSums %>% sort(decreasing=TRUE)
-nmis <- nmis[nmis > 0]
-length(nmis) # 53 variables have missing values
-qplot(1:length(nmis),nmis/nrow(train))
-
 ###############################################################################
 # Categories of variables in the Russia housing dataset
 ###############################################################################
@@ -34,7 +29,7 @@ loc <- c(grep('_count_',nt,value=TRUE),
          grep('school',nt,value=TRUE),
          grep('_1line',nt,value=TRUE),
          'eco_scale','area_m','culture_objects_top_25') %>%
-  setdiff(factors)
+  setdiff(c(factors,'ln_price_doc','price_doc'))
 nt %>% setdiff(c(dont_use,building,loc,factors))
 
 ###############################################################################
@@ -73,8 +68,8 @@ train_pca1 <- clean_to_pca1(train,30,c(dont_use,factors,building))
 ###############################################################################
 make_imp_matrix <- function(df,full_dep=NULL,groups) {
   nim <- names(df)
+  nmis <- df %>% is.na %>% colSums
   if (is.null(full_dep)) {
-    nmis <- df %>% is.na %>% colSums
     full_dep <- names(nmis)[nmis > 0]
   }
   # I never want to impute factor variables with more than 50 levels
@@ -215,8 +210,29 @@ lm_pca <- lm(ln_price_doc ~ .,train_pca2)
 pred_pca <- train_pca2 %>% select(ln_price_doc)
 pred_pca <- merge(pred_pca,predict(lm_pca),by='row.names')
 (pred_pca$ln_price_doc - pred_pca$y)^2 %>% mean %>% sqrt
-# 0.2814239, compared to 0.5151 in linear.R
+# 0.488407, compared to 0.5151 in linear.R
 qplot(pred_pca$ln_price_doc,pred_pca$y)
+
+###############################################################################
+# 10x cross-validation for linear model
+###############################################################################
+xval_ind <- rep(1:10,times=nrow(train)/10+1)[1:nrow(train)] %>% sample
+res <- rep(NA,10)
+for (i in 1:10) {
+  train_i <- train_pca2
+  train_i$ln_price_doc <- train$ln_price_doc
+  train_i$ln_price_doc[xval_ind==i] <- NA
+  lm_i <- lm(ln_price_doc ~ .,train_i)
+  pred_i <- train_i
+  pred_i$id <- train$id
+  pred_i$ln_price_doc <- train$ln_price_doc # put the known prices back in
+  pred_i <- pred_i[xval_ind==i,] # keep only the "test" set
+  pred_i <- merge(pred_i,predict(lm_i,newdata=pred_i),by='row.names')
+  rmsle <- (pred_i$ln_price_doc - pred_i$y)^2 %>% mean %>% sqrt
+  paste0('x-val ',i,': RMSLE = ',rmsle) %>% print
+  res[i] <- rmsle
+}
+mean(res) # 0.4891476
 
 ###############################################################################
 # Now it's time to get real
@@ -226,15 +242,10 @@ test <- read.csv('test.csv') %>% russia_clean
 alldata <- rbind(train,test)
 
 all_pca1 <- clean_to_pca1(alldata,30,c(dont_use,factors,building))
-all_m <- make_imp_matrix(all_pca1,groups=building)
-all_imp <- pca1_to_imputed(all_pca1,alldata,m,12345)
-# apparently didn't succeed at imputing everything in one go
+fd <- setdiff(names(alldata),c('ln_price_doc','price_doc',dont_use,factors))
+all_m <- make_imp_matrix(all_pca1,full_dep=fd,groups=building)
+all_imp <- pca1_to_imputed(all_pca1,alldata,all_m,123456)
 names(all_imp)[colSums(is.na(all_imp))>0]
-# do cheap imputation here
-x <- is.na(all_imp$cafe_avg_price_5000)
-all_imp$cafe_avg_price_5000[x] <- median(all_imp$cafe_avg_price_5000,na.rm=TRUE)
-x2 <- is.na(all_imp$ln_full_sq)
-all_imp$ln_full_sq[x2] <- median(all_imp$ln_full_sq,na.rm=TRUE)
 
 all_pca2 <- group_pca(all_imp,list(loc,building),nvars=c(38,9),
                         labels=c('loc_','build_'))
@@ -250,9 +261,11 @@ submit <- pred_pca %>%
   select(id,price_doc) %>%
   arrange(id)
 
-write.csv(submit,'submit-0608.csv',row.names=FALSE)
+write.csv(submit,'submit-0608b.csv',row.names=FALSE)
 
-# Leaderboard result wasn't spectacular -- 0.75032
-# I wonder if it's just not a great model or if I did something wrong at the end...
+# Leaderboard: 0.57660
+
+# TODO: incorporate macroeconomic data
+# TODO: try knn, rf, others...
 
 

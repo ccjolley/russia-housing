@@ -16,7 +16,7 @@ lm_pca <- lm(ln_price_doc ~ .,train_pca2)
 pred_pca <- train_pca2 %>% select(ln_price_doc)
 pred_pca <- merge(pred_pca,predict(lm_pca),by='row.names')
 (pred_pca$ln_price_doc - pred_pca$y)^2 %>% mean %>% sqrt
-# 0.488407, compared to 0.5151 in linear.R
+# 0.488407
 qplot(pred_pca$ln_price_doc,pred_pca$y)
 
 ###############################################################################

@@ -20,15 +20,22 @@ rf_subset <- function(df,numrow) {
   (df_sub$ln_price_doc - train_rf$predicted)^2 %>% mean %>% sqrt
 }
 
+res <- data.frame()
 for (i in c(10,20,50,100,200,500,1000,2000,5000,10000,20000)) {
+  ti <- Sys.time()
   x <- rf_subset(train_pca2,i)
-  paste0(i," : ",x) %>% print
+  t <- Sys.time()-ti
+  paste0(i," : ",x,' : ',t) %>% print
+  add <- data.frame(i=i,x=x,t=t)
+  res <- rbind(res,add)
 }
 
-# seems to slow down a lot after 2000 rows, but results look pretty consistent
-# TODO: How does time scale with the number of rows? Would training on the 
-#       entire dataset be completely impractical?
-# TODO: set random seed for reproducibility
+# Execution time seems to scale as ~N^1.5 in the number of rows
+# 30471 rows = 16.9 min
+# 38133 rows = 23.5 min
+
+# Not unreasonable, but cross-validation might be overkill.
+# rmsle = 0.4755; better than my re-optimized KNN
 
 ###############################################################################
 # 10x cross-validation with default parameters
@@ -36,8 +43,11 @@ for (i in c(10,20,50,100,200,500,1000,2000,5000,10000,20000)) {
 rf_rmsle <- function(df,in_test) {
   df_test <- df[in_test,]
   df_train <- df[!in_test,]
-  df_rf <- randomForest(ln_price_doc ~ .,data=train_pca2)
-  (df_test$ln_price_doc - df_rf$predicted)^2 %>% mean %>% sqrt
+  x_train <- df_train %>% select(-ln_price_doc)
+  x_test <- df_test %>% select(-ln_price_doc)
+  df_rf <- randomForest(x=x_train,y=df_train$ln_price_doc,
+                        xtest=x_test,ytest=df_test$ln_price_doc)
+  (df_test$ln_price_doc - df_rf$test$predicted)^2 %>% mean %>% sqrt
 }
 
 rf_xval <- function(df,verbose=FALSE,fold=10) {
@@ -53,5 +63,31 @@ rf_xval <- function(df,verbose=FALSE,fold=10) {
   mean(res)
 }
 
-knn_xval(train_pca2,verbose=TRUE)
-# 0.5398897 - darn close to in-sample
+ss <- 1:nrow(train_pca2) %>% sample %>% head(1000)
+train_subset <- train_pca2[ss,]
+rf_xval(train_subset,verbose=TRUE) # 0.4405848 -- better than KNN
+
+# when I have more time...
+rf_xval(train_pca2,verbose=TRUE)
+
+###############################################################################
+# Prepare submission
+###############################################################################
+all_train <- all_pca2 %>% filter(!is.na(ln_price_doc))
+all_test <- all_pca2 %>% filter(is.na(ln_price_doc))
+x_train <- all_train %>% select(-ln_price_doc)
+x_test <- all_test %>% select(-ln_price_doc)
+rf_all <- randomForest(x=x_train,y=all_train$ln_price_doc,
+                       xtest=x_test)
+
+pred_rf <- all_pca2 
+pred_rf$id <- alldata$id
+pred_rf <- pred_rf %>% filter(is.na(ln_price_doc))
+pred_rf$y <- rf_all$test$predicted
+submit <- pred_rf %>%
+  mutate(price_doc=exp(y)-1) %>%
+  select(id,price_doc) %>%
+  arrange(id)
+
+write.csv(submit,'submit-0619.csv',row.names=FALSE)
+# Leaderboard score: 0.35994 -- improved over KNN

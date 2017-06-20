@@ -50,7 +50,7 @@ knn_xval(train_pca2,verbose=TRUE)
 ###############################################################################
 k_rmsle <- sapply(1:15,function(i) {
   knn_i <- knn.reg(train_pca2[,predictors],y=train_pca2$ln_price_doc,
-               k=i,algorithm='kd_tree')
+                   k=i,algorithm='kd_tree')
   rmsle <- (train_pca2$ln_price_doc - knn_i$pred)^2 %>% mean %>% sqrt
   paste0(i,' neighbors, RMSLE = ',rmsle) %>% print
   rmsle
